@@ -3445,7 +3445,8 @@ void serialEvent()
 		HwSerial.println(cmdstring);
 	   #endif
 		command_available=true;
-		break;
+		return;		// Rest des Puffers erst nach der Verarbeitung abholen,
+					// damit im Burst gesendete Kommandos nicht verschmelzen (pycul, FHEM)
 	default:
 		cmdstring += inChar;
 	}

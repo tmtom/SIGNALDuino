@@ -214,7 +214,8 @@ void moritz_sendAck(uint8_t* enc)
 {
   //uint8_t ackPacket[12];
   char hexString[8];
-  
+  String savedCmd = cmdstring;	// gerade empfangene Kommandozeichen nicht verlieren
+
   cmdstring = "0B";                    // 11 len  [0]
   sprintf(hexString, "%02X", enc[1]);  // msgcnt  [1]
   cmdstring += hexString;
@@ -237,7 +238,7 @@ void moritz_sendAck(uint8_t* enc)
   //Inform FHEM that we send an autoack
   MSG_PRINT(F("z"));
   MSG_PRINTLN(cmdstring);
-  cmdstring = "";
+  cmdstring = savedCmd;
 }
 
 void moritz_func(char c)
