@@ -48,7 +48,19 @@
 	#ifdef MAPLE_SDUINO
 		const uint8_t pinSend[] = {10, 17, 13};
 		const uint8_t pinReceive[] = {11, 18, 16, 14};
+	  #ifdef BLUEPILL_LED
+		// Blue Pill: onboard LED is on PC13 and active LOW
+		#define PIN_LED              14
+		#define LED_ON()             digitalWrite(PIN_LED, LOW)
+		#define LED_OFF()            digitalWrite(PIN_LED, HIGH)
+		#define LED_SET(x)           digitalWrite(PIN_LED, (x) ? LOW : HIGH)
+	  #else
+		// Maple Mini: onboard LED is on PB1 and active HIGH
 		#define PIN_LED              33
+		#define LED_ON()             digitalWrite(PIN_LED, HIGH)
+		#define LED_OFF()            digitalWrite(PIN_LED, LOW)
+		#define LED_SET(x)           digitalWrite(PIN_LED, (x) ? HIGH : LOW)
+	  #endif
 		#define PIN_SEND             17   // gdo0 Pin TX out
 		#define PIN_RECEIVE_A        pinReceive[0]   // gdo2 cc1101 A
 		#define PIN_RECEIVE_B        pinReceive[1]   // gdo2 cc1101 B
@@ -87,6 +99,12 @@
 		#define PIN_LED              2
 		#define PIN_RECEIVE_A        pinReceive[0]   // gdo2 cc1101 A
 		#define PIN_RECEIVE_B        pinReceive[1]   // gdo2 cc1101 B
+	#endif
+
+	#ifndef LED_ON	// other boards: LED is active HIGH
+		#define LED_ON()             digitalWrite(PIN_LED, HIGH)
+		#define LED_OFF()            digitalWrite(PIN_LED, LOW)
+		#define LED_SET(x)           digitalWrite(PIN_LED, (x) ? HIGH : LOW)
 	#endif
 
 #ifdef MAPLE_Mini
@@ -728,7 +746,7 @@ void setup() {
 	else {
 		unsuppCmdEnable = true;
 	}
-	digitalWrite(PIN_LED, HIGH);
+	LED_ON();
   #ifdef DEBUG_SERIAL
 	HwSerial.begin(BAUDRATE);
   #endif
@@ -742,7 +760,7 @@ void setup() {
 			break;
 		}
 	}*/
-	digitalWrite(PIN_LED, LOW);
+	LED_OFF();
   #ifdef DEBUG_SERIAL
 	HwSerial.println(F("serial init ok"));
   #endif
@@ -958,7 +976,7 @@ void cronjob() {
 	  }
 	}
 	
-	 digitalWrite(PIN_LED, blinkLED);
+	 LED_SET(blinkLED);
 	 blinkLED = false;
 
 #ifdef MAPLE_Mini
