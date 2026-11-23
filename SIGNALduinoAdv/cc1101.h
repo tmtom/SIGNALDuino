@@ -21,15 +21,30 @@ extern uint8_t radionr;
 extern String cmdstring;
 extern uint8_t ccBuf[4][ccMaxBuf + 2];
 
+// CC1101 crystal frequency in MHz. Stock boards use 26 MHz; the WM868-UKEY
+// has a 27.000 MHz crystal -> frequency/rate registers must be rescaled.
+#ifndef CC1101_XTAL_MHZ
+#define CC1101_XTAL_MHZ 26
+#endif
 
 namespace cc1101 {
 	
 #ifdef MAPLE_SDUINO
+  #ifdef WM868
+	// WM868-UKEY: CC1101 radio A on SPI1 (PA7/PA6/PA5), CSN=PA4.
+	// Slots B/C/D are placeholders on unconnected pins (single-radio board).
+	#define mosiPin 4   // PA7 (D4)  MOSI out
+	#define misoPin 5   // PA6 (D5)  MISO in
+	#define sckPin  6   // PA5 (D6)  SCLK out
+	SPIClass SPI_2(mosiPin, misoPin, sckPin);
+	const uint8_t radioCsPin[] = {7, 12, 13, 31};  // A=PA4(D7); B=PC15 C=PC14 D=PB12 (dummy)
+  #else
 	#define mosiPin 28   // MOSI out
 	#define misoPin 29   // MISO in
 	#define sckPin  30   // SCLK out
 	SPIClass SPI_2(mosiPin, misoPin, sckPin);
 	const uint8_t radioCsPin[] = {31, 12, 15, 3};
+  #endif
 #elif MAPLE_CUL
 	#define mosiPin 4   // MOSI out
 	#define misoPin 5   // MISO in
@@ -203,9 +218,16 @@ namespace cc1101 {
 		0x00, // 0A CHANNR   
 		0x06, // 0B FSCTRL1   0F     152kHz IF Frquency
 		0x00, // 0C FSCTRL0
+	#if defined(CC1101_XTAL_MHZ) && (CC1101_XTAL_MHZ == 27)
+		// 27 MHz crystal (WM868): 868.30 MHz default
+		0x20, // 0D FREQ2
+		0x28, // 0E FREQ1
+		0xC5, // 0F FREQ0
+	#else
 		0x10, // 0D FREQ2     1E     Freq
-		0xB0, // 0E FREQ1     C4     
-		0x71, // 0F FREQ0     EC     
+		0xB0, // 0E FREQ1     C4
+		0x71, // 0F FREQ0     EC
+	#endif
 		0x57, // 10 MDMCFG4   8C     bWidth 325kHz
 		0xC4, // 11 MDMCFG3   22     DataRate
 		0x30, // 12 MDMCFG2   02     Modulation: ASK
@@ -399,7 +421,7 @@ namespace cc1101 {
            freq = readReg(CC1101_FREQ2, CC1101_CONFIG) * 256;
            freq = (freq + readReg(CC1101_FREQ1, CC1101_CONFIG)) * 256;
            freq += readReg(CC1101_FREQ0, CC1101_CONFIG);
-           freq = (26 * freq) / 65536 + 0.0005;
+           freq = ((float)CC1101_XTAL_MHZ * freq) / 65536 + 0.0005;
            MSG_PRINT(F("freq = "));
            MSG_PRINTLN(freq, 3);
        }
@@ -751,8 +773,8 @@ void writeCCpatable(uint8_t var) {           // write 8 byte to patable (kein pa
 		uint8_t f1;
 		uint8_t f0;
 		
-		f = freq / 26 * 65536;
-		f2 = freq / 26;
+		f = freq / CC1101_XTAL_MHZ * 65536;
+		f2 = freq / CC1101_XTAL_MHZ;
 		f1 = (f % 65536) / 256;
 		f0 = f % 256;
 		writeReg(CC1101_FREQ2, f2);

@@ -138,12 +138,20 @@ void mbus_init_tx(void) {
     } else { // TMODE
       // SYNC ist bei TX und RX gleich
 
+#if defined(CC1101_XTAL_MHZ) && (CC1101_XTAL_MHZ == 27)
+      // 27 MHz crystal (WM868): values rescaled for the same physical rates
+      // (50 kHz dev, 100 kbaud): DEVIATN 0x47, MDMCFG4/3 0x5B/0xE5
+      cc1101::writeReg(CC1101_DEVIATN, 0x47);
+      cc1101::writeReg(CC1101_MDMCFG4, 0x5B);
+      cc1101::writeReg(CC1101_MDMCFG3, 0xE5);
+#else
       // Set Deviation to 50 kHz (bei RX 0x44, 38 kHz)
       cc1101::writeReg(CC1101_DEVIATN, 0x50);
 
       // Set data rate to 100 kbaud (bei RX 103 kbaud)
       cc1101::writeReg(CC1101_MDMCFG4, 0x5B);
       cc1101::writeReg(CC1101_MDMCFG3, 0xF8);
+#endif
     }
 
     // Set GDO0 to be TX FIFO threshold signal
@@ -164,12 +172,20 @@ void mbus_init_tx_end(void) {
     } else { // TMODE
       // SYNC ist bei TX und RX gleich
 
+#if defined(CC1101_XTAL_MHZ) && (CC1101_XTAL_MHZ == 27)
+      // 27 MHz crystal (WM868): values rescaled for the same physical rates
+      // (38 kHz dev, 103 kbaud): DEVIATN 0x44, MDMCFG4/3 0x5B/0xF5
+      cc1101::writeReg(CC1101_DEVIATN, 0x44);
+      cc1101::writeReg(CC1101_MDMCFG4, 0x5B);
+      cc1101::writeReg(CC1101_MDMCFG3, 0xF5);
+#else
       // Set Deviation to RX 0x44, 38 kHz)
       cc1101::writeReg(CC1101_DEVIATN, 0x44);
 
       // Set data rate to RX 103 kbaud
       cc1101::writeReg(CC1101_MDMCFG4, 0x5C);
       cc1101::writeReg(CC1101_MDMCFG3, 0x04);
+#endif
     }
     cc1101::writeReg(CC1101_PKTLEN, 0xFF);
 

@@ -46,6 +46,19 @@
 
 
 	#ifdef MAPLE_SDUINO
+	  #ifdef WM868
+		// WM868-UKEY dongle: radio A on SPI1 (PA4..PA7), GDO0=PB1, GDO2=PB0.
+		// Slots B/C/D are placeholders on unconnected pins (board has 1 radio);
+		// they must not touch PB4 (USB pull-up) or PB5 (LED).
+		const uint8_t pinSend[] = {33, 11, 10, 16};    // GDO0: A=PB1 B=PA0 C=PA1 D=PB6
+		const uint8_t pinReceive[] = {3, 15, 32, 14};  // GDO2: A=PB0 B=PB7 C=PB8 D=PC13
+		// WM868: LED is on PB5 and active LOW
+		#define PIN_LED              17
+		#define LED_ON()             digitalWrite(PIN_LED, LOW)
+		#define LED_OFF()            digitalWrite(PIN_LED, HIGH)
+		#define LED_SET(x)           digitalWrite(PIN_LED, (x) ? LOW : HIGH)
+		#define PIN_SEND             33   // gdo0 Pin TX out
+	  #else
 		const uint8_t pinSend[] = {10, 17, 13};
 		const uint8_t pinReceive[] = {11, 18, 16, 14};
 	  #ifdef BLUEPILL_LED
@@ -62,6 +75,7 @@
 		#define LED_SET(x)           digitalWrite(PIN_LED, (x) ? HIGH : LOW)
 	  #endif
 		#define PIN_SEND             17   // gdo0 Pin TX out
+	  #endif
 		#define PIN_RECEIVE_A        pinReceive[0]   // gdo2 cc1101 A
 		#define PIN_RECEIVE_B        pinReceive[1]   // gdo2 cc1101 B
 		#define PIN_WIZ_RST          27
@@ -231,6 +245,10 @@ Callee rssiCallee;
 
 #define radioOokAsk 1
 #define defSelRadio 1	// B
+#ifdef WM868
+#undef defSelRadio
+#define defSelRadio 0	// A (WM868 has one radio on slot A)
+#endif
 #define defStatRadio 0xFF
 
 //--- EEProm Address
@@ -751,6 +769,13 @@ void setup() {
 	LED_ON();
   #ifdef DEBUG_SERIAL
 	HwSerial.begin(BAUDRATE);
+  #endif
+  #ifdef WM868
+	// WM868-UKEY: USB D+ pull-up (1k5) is switched by a P-FET on PB4;
+	// drive PB4 low (open drain) to attach USB. At reset PB4 floats and the
+	// external pull-up keeps USB disconnected -> clean attach on every boot.
+	digitalWrite(18, LOW);
+	pinMode(18, OUTPUT_OPEN_DRAIN);
   #endif
 	Serial.begin(BAUDRATE);
 	while (!Serial) {
@@ -3810,6 +3835,17 @@ void initEEPROMconfig(void)
 		tools::EEwrite(CSetAddr[i], CSetDef[i]);
 	}
 	tools::EEwrite(addr_max_magic0, 0);
+#ifdef WM868
+	// WM868: single radio on slot A - enable A with bank 0, disable B/C/D
+	tools::EEwrite(addr_statRadio, 0);              // Bank 0  A
+	tools::EEwrite(addr_statRadio+1, defStatRadio); // B
+	tools::EEwrite(addr_statRadio+2, defStatRadio); // C
+	tools::EEwrite(addr_statRadio+3, defStatRadio); // D
+	radio_bank[0] = 0;
+	radio_bank[1] = defStatRadio;
+	radio_bank[2] = defStatRadio;
+	radio_bank[3] = defStatRadio;
+#else
 	tools::EEwrite(addr_statRadio, defStatRadio);	// A
 	tools::EEwrite(addr_statRadio+1, 0);    // Bank 0  B
 	tools::EEwrite(addr_statRadio+2, defStatRadio); // C
@@ -3818,6 +3854,7 @@ void initEEPROMconfig(void)
 	radio_bank[1] = 0;
 	radio_bank[2] = defStatRadio;
 	radio_bank[3] = defStatRadio;
+#endif
 	tools::EEwrite(addr_selRadio, defSelRadio);
 	tools::EEwrite(addr_res_e5, 0xFF); // reserve
 	tools::EEwrite(addr_res_e6, 0xFF);
