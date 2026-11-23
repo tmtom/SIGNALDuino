@@ -12,6 +12,10 @@
 #define addr_max_autoAck0    0xBC
 #define addr_max_autoAck1    0xBD
 #define addr_max_autoAck2    0xBE
+#define addr_max_fakeWT0     0xD4
+#define addr_max_fakeWT1     0xD5
+#define addr_max_fakeWT2     0xD6
+#define addr_max_fakeWTmagic 0xD7
 
 #include <Arduino.h>
 #include "cc1101.h"
@@ -26,12 +30,53 @@ namespace moritz {
 static uint8_t autoAckAddr[3] = {0, 0, 0};
 static uint8_t fakeWallThermostatAddr[3] = {0x11, 0x11, 0x11};
 static uint32_t lastTime = millis();
+static uint8_t txReport = 0;			// culfw TX_REPORT (X command), Bit 0x21 = RSSI report (X21)
+static uint16_t credit10ms = 900;		// duty cycle credit in 10ms units (culfw MAX_CREDIT), +1/s
+static uint32_t creditMs = millis();
 
 void moritz_handleAutoAck(uint8_t* enc);
 void moritz_sendraw(uint8_t start, uint8_t end, uint8_t longPreamble);
 void moritz_sendAck(uint8_t* enc);
 void moritz_func(char c);
 void moritz_read_AutoAckAddr();
+uint16_t moritz_getCredit();
+void moritz_printFrame(uint8_t* buf, uint8_t len, bool appendRSSI, uint8_t rssi);
+
+// credit refill: +1 per second up to 900 (1% duty cycle), see culfw clib/clock.c
+uint16_t moritz_getCredit()
+{
+	uint32_t add = (millis() - creditMs) / 1000;
+	if (add > 0) {
+		creditMs += add * 1000;
+		uint32_t tmp = (uint32_t)credit10ms + add;
+		credit10ms = (tmp > 900) ? 900 : (uint16_t)tmp;
+	}
+	return credit10ms;
+}
+
+// pycul/culfw compatible RX output: "Z" + hex(frame incl. length byte) and,
+// if the RSSI report flag is set (X21), the raw RSSI byte as last byte
+// (see culfw clib/rf_moritz.c rf_moritz_task)
+void moritz_printFrame(uint8_t* buf, uint8_t len, bool appendRSSI, uint8_t rssi)
+{
+	uint8_t flen = buf[0];			// length byte = number of payload bytes
+	if (flen < 10 || (uint16_t)flen + 1 > len) {
+		return;				// not a complete MAX! frame (10 header bytes minimum)
+	}
+	MSG_PRINT(F("Z"));
+	for (uint8_t i = 0; i <= flen; i++) {
+		cc1101::printHex2(buf[i]);
+	}
+	if (txReport & 0x21) {			// REP_RSSI: bit 5 (a-culfw), bit 0 (culfw)
+		if (appendRSSI && (uint16_t)flen + 2 < len) {
+			cc1101::printHex2(buf[flen + 1]);	// RSSI (CC1101 append status, LQI follows)
+		}
+		else if (!appendRSSI) {
+			cc1101::printHex2(rssi);
+		}
+	}
+	MSG_PRINTLN("");
+}
 
 void moritz_handleAutoAck(uint8_t* enc)
 {
@@ -79,6 +124,15 @@ void moritz_handleAutoAck(uint8_t* enc)
 /* longPreamble is necessary for unsolicited messages to wakeup the receiver */
 void moritz_sendraw(uint8_t start, uint8_t end, uint8_t longPreamble)
 {
+    // duty cycle credit, see culfw clib/rf_moritz.c moritz_sendraw
+    uint8_t hblen = (end - start) / 2;      // frame bytes incl. length byte
+    uint32_t sum = (longPreamble ? 100 : 0) + ((uint32_t)hblen * 8) / 10;
+    if (moritz_getCredit() < sum) {
+        MSG_PRINTLN(F("LOVF"));
+        return;
+    }
+    credit10ms -= sum;
+
     uint8_t marcstate = cc1101::getMARCSTATE();
     if (marcstate != MARCSTATE_RX) { // nicht RX, error
         MSG_PRINT(F("ZERR1"));
@@ -243,7 +297,39 @@ void moritz_func(char c)
             moritz_sendraw(2, len, c == 's');
             return;
         }
-        MSG_PRINTLN(F("ZLENERR:"));
+        MSG_PRINTLN(F("LENERR"));	// culfw: LENERR
+    }
+    else if (c == 'w') {	// Fake Wall-Thermostat (culfw: Zw<addr>)
+        len = cmdstring.length();
+        if (len == 8) {
+            for (uint8_t i = 2; i < 8; i++) {
+                if (!isHexadecimalDigit(cmdstring.charAt(i))) {
+                    c = '0';
+                    break;
+                }
+            }
+        }
+        else {
+            c = '0';
+        }
+        if (c == 'w') {
+            fakeWallThermostatAddr[0] = tools::cmdstringPos2int(2);
+            fakeWallThermostatAddr[1] = tools::cmdstringPos2int(4);
+            fakeWallThermostatAddr[2] = tools::cmdstringPos2int(6);
+            tools::EEwrite(addr_max_fakeWT0, fakeWallThermostatAddr[0]);
+            tools::EEwrite(addr_max_fakeWT1, fakeWallThermostatAddr[1]);
+            tools::EEwrite(addr_max_fakeWT2, fakeWallThermostatAddr[2]);
+            tools::EEwrite(addr_max_fakeWTmagic, max_magic0);
+            tools::EEwrite(addr_max_autoAck0, autoAckAddr[0]);	// damit der gemeinsame Magic-Zustand konsistent bleibt
+            tools::EEwrite(addr_max_autoAck1, autoAckAddr[1]);
+            tools::EEwrite(addr_max_autoAck2, autoAckAddr[2]);
+            tools::EEwrite(addr_max_magic0, max_magic0);
+            tools::EEwrite(addr_max_magic1, max_magic1);
+            tools::EEstore();
+        }
+        else {
+            MSG_PRINTLN(F("not 6 hex characters"));
+        }
     }
 }
 
@@ -252,6 +338,11 @@ void moritz_read_AutoAckAddr()
     autoAckAddr[0] = tools::EEread(addr_max_autoAck0);
     autoAckAddr[1] = tools::EEread(addr_max_autoAck1);
     autoAckAddr[2] = tools::EEread(addr_max_autoAck2);
+    if (tools::EEread(addr_max_fakeWTmagic) == max_magic0) {
+        fakeWallThermostatAddr[0] = tools::EEread(addr_max_fakeWT0);
+        fakeWallThermostatAddr[1] = tools::EEread(addr_max_fakeWT1);
+        fakeWallThermostatAddr[2] = tools::EEread(addr_max_fakeWT2);
+    }
 }
 }
 #endif

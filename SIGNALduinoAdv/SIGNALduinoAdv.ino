@@ -329,6 +329,7 @@ void cmd_send();
 void cmd_uptime();
 void cmd_test();
 void cmd_maxfunc();
+void cmd_xReport();
 void cmd_Version();
 void cmd_writeEEPROM();
 void cmd_writePatable();
@@ -377,10 +378,10 @@ void setHasCC1101(uint8_t val);
 //--------------------------------------------------------------------------------
 
 //typedef void (* GenericFP)(int); //function pointer prototype to a function which takes an 'int' an returns 'void'
-#define cmdAnz 24
-const char cmd0[] =  {'?', '?', 'b', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'e', 'e', 'P', 'r', 'R', 'S', 't', 'T', 'V', 'W', 'x', 'X', 'X','Z'};
-const char cmd1[] =  {'S', ' ', ' ', 'E', 'D', 'G', 'R', 'S', 'W', ' ', 'C', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'E', 'Q',' '};
-const bool cmdCC[] = {  0,   0,   0,   0,   0,   0,  1,   0,   1,   1,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,  1 };
+#define cmdAnz 25
+const char cmd0[] =  {'?', '?', 'b', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'e', 'e', 'P', 'r', 'R', 'S', 't', 'T', 'V', 'W', 'x', 'X', 'X','Z','X'};
+const char cmd1[] =  {'S', ' ', ' ', 'E', 'D', 'G', 'R', 'S', 'W', ' ', 'C', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'E', 'Q',' ',' '};
+const bool cmdCC[] = {  0,   0,   0,   0,   0,   0,  1,   0,   1,   1,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,  1,  0 };
 void (*cmdFP[])(void) = {
 		cmd_help_S, // ?S
 		cmd_help,	// ?
@@ -405,7 +406,8 @@ void (*cmdFP[])(void) = {
 		cmd_writePatable,// x
 		changeReceiver,	// XE
 		changeReceiver,	// XQ
-		cmd_maxfunc     // Z
+		cmd_maxfunc,    // Z
+		cmd_xReport	// X (TX report flags / credit10ms, culfw kompatibel)
 		};
 
 #define CSetAnz 14	// Anzahl der Konfig Variablen
@@ -1200,7 +1202,7 @@ void getRxFifo(uint16_t Boffs) {
 		if (fifoBytes > 0) {
 			uint8_t marcstate;
 			bool appendRSSI = false;
-			uint8_t RSSI;
+			uint8_t RSSI = 0;
 			if ((tools::EEread(Boffs + 2 +CC1101_PKTCTRL1) & 4) == 4) {
 				appendRSSI = true;
 			}
@@ -1327,6 +1329,7 @@ void getRxFifo(uint16_t Boffs) {
 					enc[i] = ccBuf[radionr][i];
 				}
 				moritz::moritz_handleAutoAck(enc);
+				moritz::moritz_printFrame(ccBuf[radionr], fifoBytes, appendRSSI, RSSI);	// Z Zeile fuer pycul/culfw
 				#ifdef ESP32
 				MSG_PRINT(MSG_START);
 				MSG_PRINT(F("MN;D="));
@@ -2605,7 +2608,7 @@ void cmd_maxfunc()
     
     c = cmdstring.charAt(1);
      
-    if (c == 's' || c == 'f') {     // Send/Send fast
+    if (c == 's' || c == 'f' || c == 'r') {     // Send/Send fast, Reception on
         uint8_t remRadionr = radionr;
         uint16_t bankoff;
         radionr = 255;
@@ -2620,19 +2623,40 @@ void cmd_maxfunc()
             }
         }
         if (radionr < 4) {
-            moritz::moritz_func(c);
+            if (c == 'r') {         // Zr - Reception on (RX laeuft ueber die Bank-Konfiguration)
+                RXenabled[radionr] = true;
+                cc1101::setReceiveMode();
+            }
+            else {
+                moritz::moritz_func(c);
+            }
         }
         else {
             MSG_PRINTLN(F("no max config found!"));
         }
         radionr = remRadionr;
     }
-    else if (c == 'a' || c == 'g') {
+    else if (c == 'a' || c == 'g' || c == 'w') {
         moritz::moritz_func(c);
     }
     else {
        unsuppCmd = true;   
     }
+}
+
+//--------------------------------------------------------------------------------
+void cmd_xReport()	// X - TX report flags / credit10ms (culfw kompatibel, pycul/14_CUL_MAX.pm)
+{
+	if (cmdstring.length() == 3 && isHexadecimalDigit(cmdstring.charAt(1)) && isHexadecimalDigit(cmdstring.charAt(2))) {
+		moritz::txReport = tools::cmdstringPos2int(1);	// z.B. X21
+	}
+	else if (cmdstring.length() != 1) {
+		unsuppCmd = true;
+		return;
+	}
+	printHex2(moritz::txReport);
+	MSG_PRINT(F(" "));
+	MSG_PRINTLN(moritz::moritz_getCredit());
 }
 
 //--------------------------------------------------------------------------------
